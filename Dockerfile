@@ -1,7 +1,85 @@
-FROM uhadoop
+# ./jupyter/Dockerfile
+FROM --platform=linux/arm64 python:3.9-slim-bullseye
 
-LABEL maintainer="Pedro Santos" \
-      version="2.0"
+LABEL maintainer="jorgegarciaflores@gmail.com"
+      version="2.1"
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV HADOOP_VERSION=3.3.1
+ENV HADOOP_HOME=/opt/hadoop
+ENV PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin
+
+# instalar dependencias de sistema (jdk, wget, tar, build tools para compilar Wheels si hiciera falta)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      openjdk-11-jdk-headless \
+      wget \
+      curl \
+      gnupg \
+      ca-certificates \
+      build-essential \
+      default-jdk \
+      ssh \
+      rsync \
+      procps \
+      git \
+      unzip \
+      locales \
+      gcc \
+      g++ \
+      libssl-dev \
+      libffi-dev \
+      python3-dev \
+      && rm -rf /var/lib/apt/lists/*
+
+# locale (opcional pero útil)
+RUN sed -i '/es_ES.UTF-8/s/^# //g' /etc/locale.gen && \
+    locale-gen
+
+# instalar Hadoop 3.3.1 (binario)
+RUN mkdir -p /opt && \
+    cd /opt && \
+    wget -q https://downloads.apache.org/hadoop/common/hadoop-${HADOOP_VERSION}/hadoop-${HADOOP_VERSION}.tar.gz && \
+    tar -xzf hadoop-${HADOOP_VERSION}.tar.gz && \
+    mv hadoop-${HADOOP_VERSION} ${HADOOP_HOME} && \
+    rm hadoop-${HADOOP_VERSION}.tar.gz
+
+# crear usuario jovyan (como Jupyter images hacen)
+ARG NB_USER=jovyan
+ARG NB_UID=1000
+RUN useradd -m -s /bin/bash -N -u ${NB_UID} ${NB_USER} || true
+WORKDIR /home/${NB_USER}
+RUN chown -R ${NB_USER}:${NB_USER} /home/${NB_USER} ${HADOOP_HOME}
+
+# pip + jupyter + kernels
+RUN python -m pip install --upgrade pip setuptools wheel
+RUN python -m pip install \
+    jupyterlab \
+    notebook \
+    ipykernel \
+    jupyter \
+    numpy \
+    pandas \
+    mrjob \
+    avro-python3
+
+# crear kernel con nombre claro
+# USER ${NB_USER}
+# RUN python -m ipykernel install --user --name jupyter_hadoop_py39 --display-name "Python (jupyter_hadoop_py39)"
+
+# # Exponer puerto jupyter (uso 8888 dentro)
+# EXPOSE 8888
+
+# # Volumen por defecto para notebooks
+# VOLUME ["/home/jovyan/notebooks", "/dataset"]
+
+# Config Jupyter: sin token (solo para entornos de laboratorio controlados)
+# RUN mkdir -p /home/jovyan/.jupyter && \
+#     echo "c.NotebookApp.token = ''" >> /home/jovyan/.jupyter/jupyter_notebook_config.py && \
+#     echo "c.NotebookApp.password = ''" >> /home/jovyan/.jupyter/jupyter_notebook_config.py && \
+#     echo "c.NotebookApp.ip = '0.0.0.0'" >> /home/jovyan/.jupyter/jupyter_notebook_config.py && \
+#     echo "c.NotebookApp.open_browser = False" >> /home/jovyan/.jupyter/jupyter_notebook_config.py
+
 
 #Instalamos: MySQL server para el metastore de Hive. Jupyter para ejecutar programas. Dsdmainutils para herramienta hexdump
 RUN   apt-get -q update && \
@@ -70,5 +148,12 @@ RUN /etc/init.d/mysql start && \
     mysql -e "GRANT ALL PRIVILEGES ON * . * TO 'hive'@'localhost'"	&& \
     schematool -dbType mysql -initSchema
  
+
+# # startup
+# CMD ["jupyter", "notebook", "--no-browser", "--port=8888", "--ip=0.0.0.0", "--NotebookApp.token=''", "--NotebookApp.password=''"]
+
  
 EXPOSE 9870 8889 10002
+
+
+
